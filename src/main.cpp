@@ -12,10 +12,17 @@
 #include <U8g2lib.h>
 #include <Wire.h>
 #include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WiFiMulti.h> 
+#include <ESP8266mDNS.h>
+#include <ESP8266WebServer.h>
+
 
 // WIFI CREDENTIALS
 const char* ssid="kevin";
 const char* password="12345678";
+ESP8266WiFiMulti wifiMulti;
+ESP8266WebServer server(80);
 //int ledPin = LED_BUILTIN;
 
 //OLED 128x64
@@ -42,7 +49,9 @@ long timer, timeout;
 #define INPUT_SIZE 20
 char serialRead;
 
-bool updater = false;
+String MESSAGE;
+
+bool newFace = false;
 //int function1,function2,function3,function4;
   int function[5];
 void Eyes(int _deg, int _dist)
@@ -81,12 +90,12 @@ void setupWifi()
   Serial.println();
   Serial.print("Connecting...");
   Serial.println(ssid);
-  WiFi.begin(ssid,password);
+  wifiMulti.addAP(ssid,password);
   Serial.println();
   Serial.print("Connecting...");
-  while(WiFi.status() != WL_CONNECTED)
+  while (wifiMulti.run() != WL_CONNECTED)
   {
-    delay(500);
+    delay(250);
     Serial.print(".");
     if (millis() - timeout > 10000)
       break;
@@ -101,6 +110,36 @@ void setupWifi()
   }
   else 
     Serial.println("Wifi NOT Connected");
+
+  if (MDNS.begin("esp")) // Start the mDNS responder for esp.local
+    Serial.println("mDNS responder started");
+  else 
+    Serial.println("Error setting up MDNS responder!");
+
+  server.on("/", HTTP_GET, []() {
+    server.send(200, "text/html", "<form action=\"/face\" method=\"POST\"><input type=\"submit\" value=\"FACE\"></form>");
+  });
+  server.on("/face", HTTP_POST, [](){
+    server.send(200, "text/html", "<form action=\"/facesent\" method=\"POST\"><input type=\"text\" name=\"eye_angle\" placeholder=\"eye_angle\"></br><input type=\"text\" name=\"eye_distance\" placeholder=\"eye_distance\"><input type=\"text\" name=\"mouth_size\" placeholder=\"mouth_size\"><input type=\"text\" name=\"mouth_ypos\" placeholder=\"mouth_ypos\"><input type=\"text\" name=\"mouth_smile\" placeholder=\"mouth_smile\"><input type=\"submit\" value=\"SEND\"></form><p>(EYE_ANGLE, DIST_FROM_CENTER, MOUTH_SIZE, MOUTH_yPOS, MOUTH_SMILE)</p>");
+  });
+  server.on("/facesent", HTTP_POST, [](){
+    //DO SOMETHING WITH THE DATA
+    function[0] = server.arg("eye_angle").toInt();
+    function[1] = server.arg("eye_distance").toInt();
+    function[2] = server.arg("mouth_size").toInt();
+    function[3] = server.arg("mouth_ypos").toInt();
+    function[4] = server.arg("mouth_smile").toInt();
+    newFace = true;
+    server.sendHeader("Location","/");
+    server.send(303); 
+  });
+  server.onNotFound([](){
+    server.send(404, "text/plain", "404: Not found");
+  });
+
+  server.begin();                            // Actually start the server
+  Serial.println("HTTP server started");  
+
 }
 void setupDisplay()
 {
@@ -133,9 +172,6 @@ bool getSerialMessage()
     index++;
     separator = strtok(NULL, ",");
   }
-  
-  for(int n = 0; n < index; n++)
-    Serial.println(function[n]);
 
   return true;
 }
@@ -149,14 +185,23 @@ void setup()
 
 void loop() 
 {
-  // Check for serial messages and update display
-  // Format for input (EYES(2Param),MOUTH(3Param))
-  // (EYE_ANGLE, DIST_FROM_CENTER, MOUTH_SIZE, MOUTH_yPOS, MOUTH_SMILE)
-  if(getSerialMessage())    
-  {  
+  // Listen for HTTP requests from clients
+  server.handleClient();
+
+  if(newFace)
+  {
     dis.clearBuffer();
+    // Format for input (EYES(2Param),MOUTH(3Param))
+    // (EYE_ANGLE, DIST_FROM_CENTER, MOUTH_SIZE, MOUTH_yPOS, MOUTH_SMILE)
     Eyes(function[0],function[1]);
     Mouth(function[2],function[3],-function[4]);
+    for(int n = 0; n < 5; n++)
+      Serial.println(function[n]);
     dis.sendBuffer();
+    newFace = false;
   }
+  
+  // Check for serial messages and update display
+  // if(getSerialMessage())    
+  //   newFace = true;
 }
