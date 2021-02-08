@@ -1,10 +1,14 @@
 // TO-DO LIST /////////////////
+// [----] STATE MACHINES
 // [DONE] ANIMATION FUNCTIONS
 // [----] TEXT/DRAW FUNCTIONS
-// [DONE] SERIAL COMMUNICATION
-// [DONE] MOBILE WIFI CONNECTION
-// [----] WIFI TO SERIAL COMM
-// [----] APK/WEB INTEGRATION
+// [----] FACIAL EXPRESSION PRESETS
+// [DONE] SERIAL COMMUNICATIONz
+// [DONE] STANDARD WIFI CONNECTION
+// [----] ADVANCED WIFI CONNECTION
+// [DONE] BASIC HTML IMPLEMENTATION
+// [DONE] ADVANCED HTML IMPLEMENTATION
+// [----] BASIC APP IMPLEMENTATION
 ///////////////////////////////
 
 #include <Arduino.h>
@@ -23,13 +27,17 @@ const char* ssid="kevin";
 const char* password="12345678";
 ESP8266WiFiMulti wifiMulti;
 ESP8266WebServer server(80);
-//int ledPin = LED_BUILTIN;
+uint8_t buzzerPin = D8;
+uint8_t ledR = D7;
+uint8_t ledG = D6;
+uint8_t ledB = D5;
 
 //OLED 128x64
 //U8G2_SSD1306_128X64_NONAME_F_SW_I2C dis(U8G2_R0,
 //                              /* clock=*/ D1, 
 //                              /* data=*/  D2, 
 //                              /* reset=*/ U8X8_PIN_NONE);// without Reset
+
 //Nokia 5110 Display
 U8G2_PCD8544_84X48_F_4W_SW_SPI dis(U8G2_R0, 
                        /* clock=*/ D4, 
@@ -82,20 +90,38 @@ void Mouth(int _size,int _yPos, int _smileSize)
   dis.drawLine(mouthR,mouthY,mouthR,smile);
 }
 
+
+void setupFeedback()
+{
+  pinMode(buzzerPin,OUTPUT);
+  pinMode(ledR,OUTPUT);
+  pinMode(ledG,OUTPUT);
+  pinMode(ledB,OUTPUT);
+}
+void giveFeedback(bool R = 0, bool G = 0, bool B = 0, int freq = 0)
+{
+    digitalWrite(ledR,R);
+    digitalWrite(ledG,G); 
+    digitalWrite(ledB,B);
+    tone(buzzerPin,freq,50);    
+}
+
 void setupWifi()
 { 
-  //pinMode(ledPin,OUTPUT);
   //digitalWrite(ledPin,HIGH);
   timeout = millis();
   Serial.println();
   Serial.print("Connecting...");
   Serial.println(ssid);
   wifiMulti.addAP(ssid,password);
+  wifiMulti.addAP("kevinpc","esp123456");
   Serial.println();
   Serial.print("Connecting...");
   while (wifiMulti.run() != WL_CONNECTED)
   {
+    giveFeedback(1,0,0,0);
     delay(250);
+    giveFeedback(0,0,0,200);
     Serial.print(".");
     if (millis() - timeout > 10000)
       break;
@@ -103,24 +129,33 @@ void setupWifi()
   //digitalWrite(ledPin,LOW);
   Serial.println();
   if (WiFi.status() == WL_CONNECTED)
-  {
+  {    
+    giveFeedback(0,1,0,400);
     Serial.println("Wifi Connected");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+    Serial.print("MAC: ");
+    Serial.println(WiFi.macAddress());
+    delay(1000);
+    giveFeedback();
   }
-  else 
+  else {
     Serial.println("Wifi NOT Connected");
-
-  if (MDNS.begin("esp")) // Start the mDNS responder for esp.local
+    giveFeedback(1,0,0,100);
+    delay(1000);
+    giveFeedback();
+  }
+  if (MDNS.begin("esp8266")) {// Start the mDNS responder for esp.local
     Serial.println("mDNS responder started");
-  else 
+  }
+  else {
     Serial.println("Error setting up MDNS responder!");
-
+  }
   server.on("/", HTTP_GET, []() {
     server.send(200, "text/html", "<form action=\"/face\" method=\"POST\"><input type=\"submit\" value=\"FACE\"></form>");
   });
   server.on("/face", HTTP_POST, [](){
-    server.send(200, "text/html", "<form action=\"/facesent\" method=\"POST\"><input type=\"text\" name=\"eye_angle\" placeholder=\"eye_angle\"></br><input type=\"text\" name=\"eye_distance\" placeholder=\"eye_distance\"><input type=\"text\" name=\"mouth_size\" placeholder=\"mouth_size\"><input type=\"text\" name=\"mouth_ypos\" placeholder=\"mouth_ypos\"><input type=\"text\" name=\"mouth_smile\" placeholder=\"mouth_smile\"><input type=\"submit\" value=\"SEND\"></form><p>(EYE_ANGLE, DIST_FROM_CENTER, MOUTH_SIZE, MOUTH_yPOS, MOUTH_SMILE)</p>");
+    server.send(200, "text/html", "</form><p>(EYE ANGLE, DIST FROM CENTER, MOUTH SIZE, MOUTH yPOS, MOUTH SMILE)</p></br><form action=\"/facesent\" method=\"POST\"><input type=\"text\" name=\"eye_angle\" placeholder=\"eye_angle\"><input type=\"text\" name=\"eye_distance\" placeholder=\"eye_distance\"></br><input type=\"text\" name=\"mouth_size\" placeholder=\"mouth_size\"><input type=\"text\" name=\"mouth_ypos\" placeholder=\"mouth_ypos\"><input type=\"text\" name=\"mouth_smile\" placeholder=\"mouth_smile\"></br><input type=\"submit\" value=\"SEND\">");
   });
   server.on("/facesent", HTTP_POST, [](){
     //DO SOMETHING WITH THE DATA
@@ -150,6 +185,7 @@ void setupDisplay()
   Mouth(0,0,1);
   dis.sendBuffer();
 }
+
 
 bool getSerialMessage()
 {
@@ -181,6 +217,7 @@ void setup()
   Serial.begin(115200);
   setupDisplay();
   setupWifi();
+  setupFeedback();
 }
 
 void loop() 
@@ -193,12 +230,17 @@ void loop()
     dis.clearBuffer();
     // Format for input (EYES(2Param),MOUTH(3Param))
     // (EYE_ANGLE, DIST_FROM_CENTER, MOUTH_SIZE, MOUTH_yPOS, MOUTH_SMILE)
+    giveFeedback(0,0,1,50);
     Eyes(function[0],function[1]);
     Mouth(function[2],function[3],-function[4]);
-    for(int n = 0; n < 5; n++)
+    for(int n = 0; n < 5; n++){
       Serial.println(function[n]);
+    }
     dis.sendBuffer();
+    delay(1000);
+    giveFeedback();
     newFace = false;
+    
   }
   
   // Check for serial messages and update display
