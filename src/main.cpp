@@ -103,7 +103,8 @@ void giveFeedback(bool R = 0, bool G = 0, bool B = 0, int freq = 0)
     digitalWrite(ledR,R);
     digitalWrite(ledG,G); 
     digitalWrite(ledB,B);
-    tone(buzzerPin,freq,50);    
+    tone(buzzerPin,freq,50); 
+    timer = millis();   
 }
 
 void setupWifi()
@@ -119,7 +120,7 @@ void setupWifi()
   Serial.print("Connecting...");
   while (wifiMulti.run() != WL_CONNECTED)
   {
-    giveFeedback(1,0,0,0);
+    giveFeedback(1,0,1,0);
     delay(250);
     giveFeedback(0,0,0,200);
     Serial.print(".");
@@ -136,14 +137,12 @@ void setupWifi()
     Serial.println(WiFi.localIP());
     Serial.print("MAC: ");
     Serial.println(WiFi.macAddress());
-    delay(1000);
-    giveFeedback();
+
   }
   else {
     Serial.println("Wifi NOT Connected");
     giveFeedback(1,0,0,100);
-    delay(1000);
-    giveFeedback();
+    timeout = millis();
   }
   if (MDNS.begin("esp8266")) {// Start the mDNS responder for esp.local
     Serial.println("mDNS responder started");
@@ -237,12 +236,20 @@ void loop()
       Serial.println(function[n]);
     }
     dis.sendBuffer();
-    delay(1000);
-    giveFeedback();
     newFace = false;
     
   }
   
+  if(millis() - timer > 1000)
+  {
+      giveFeedback();
+  }
+
+  if(millis() - timeout > 30000 && wifiMulti.run() != WL_CONNECTED)
+  {
+    setupWifi();
+  }
+
   // Check for serial messages and update display
   // if(getSerialMessage())    
   //   newFace = true;
