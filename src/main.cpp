@@ -1,5 +1,5 @@
-// TO-DO LIST /////////////////
-// [----] STATE MACHINES
+// TO-DO LIST
+// [DONE] STATE MACHINES
 // [DONE] ANIMATION FUNCTIONS
 // [DONE] TEXT FUNCTION
 // [DONE] DRAW FUNCTION
@@ -10,7 +10,11 @@
 // [DONE] BASIC HTML IMPLEMENTATION
 // [DONE] ADVANCED HTML IMPLEMENTATION
 // [DONE] BASIC APP IMPLEMENTATION
-///////////////////////////////
+
+// HERE IS WHERE YOU CHOOSE BETWEEN 
+// isAdafruit = true  => LIPO BATTERY
+// isAdafruit = false => USB POWERED
+#define isAdafruit false
 
 #include <Arduino.h>
 #include <U8g2lib.h>
@@ -21,11 +25,11 @@
 #include <ESP8266mDNS.h>
 #include <ESP8266WebServer.h>
 
-// HTTPS //////////////////
+// HTTPS //
 #include "HTTPSRedirect.h"
 #include "DebugMacros.h"
 
-// OSC ////////////////////
+// OSC //
 #include <OSCMessage.h>
 #include <WiFiUdp.h>
 #include <OSCMessage.h>
@@ -36,15 +40,22 @@
 WiFiUDP Udp;
 const unsigned int localPort = 14587;        
 OSCErrorCode error;
-///////////////////////////
 
 // HTTPS GOOGLE SPREADSHEET /////////
-// Replace with your own script id to make server side changes
+// Script ID from Google Scripts
 const char *GScriptId = "AKfycbx3ElWQI0FU3mg4_pszULcIJ0gmrQyug2KR4NZKK7N6oUIzBKb1yb4L";
 const int httpsPort = 443;
-// Read from Google Spreadsheet
-String url3 = String("/macros/s/") + GScriptId + "/exec?read=2";
+// Read from Google Spreadsheet string
+String url3 = String("/macros/s/") + GScriptId + "/exec?read=A1";
+
 HTTPSRedirect* client = nullptr;
+const char* host = "script.google.com";
+// Message that will be received form Google Spreadsheet
+String myReceivedText = "";
+// this is a flag to store the first char of the string
+// and check if it changed before continuing
+char oldHttpsMessage;
+
 // used to store the values of free stack and heap
 // before the HTTPSRedirect object is instantiated
 // so that they can be written to Google sheets
@@ -52,46 +63,55 @@ HTTPSRedirect* client = nullptr;
 unsigned int free_heap_before = 0;
 unsigned int free_stack_before = 0;
 
-// WIFI CREDENTIALS
-const char* ssid="kevin";
-const char* password="12345678";
+// WIFI
 ESP8266WiFiMulti wifiMulti;
 ESP8266WebServer server(80);
-// uint8_t buzzerPin = D8;
-// uint8_t ledR = D7;
-// uint8_t ledG = D6;
-uint8_t ledLCD = D5;
-///////////////////////
 
-const char* host = "script.google.com";
-String myReceivedText = "";
-String oldHttpsMessage = "";
-//Nokia 5110 Display
-U8G2_PCD8544_84X48_F_4W_SW_SPI dis(U8G2_R0, 
-                       /* clock=*/ D4, 
-                       /* data=*/  D3, 
-                       /* cs=*/    D1, 
-                       /* dc=*/    D2, 
-                       /* reset=*/ D0);  
+//Nokia 5110 Display Object
+#if isAdafruit
+U8G2_PCD8544_84X48_F_4W_SW_SPI dis(U8G2_R0, // #PIN for ADAFRUIT'S FEATHER HUZZAH
+                       /* clock=*/   2,      // 2  CLK D4
+                       /* data=*/   13,      // 13 DIN D3
+                       /* cs=*/      5,      // 5  CE  D1
+                       /* dc=*/      4,      // 4  DC  D2
+                       /* reset=*/  12);     // 12 RST D6                        
+uint8_t ledLCD = 14;                         // 14 LED D5
+                       // connect D0 to RST // 16 
+#else
+U8G2_PCD8544_84X48_F_4W_SW_SPI dis(U8G2_R0, // #PIN for ADAFRUIT'S FEATHER HUZZAH
+                       /* clock=*/  D4,      // 2  CLK D4
+                       /* data=*/   D3,      // 13 DIN D3
+                       /* cs=*/     D1,      // 5  CE  D1
+                       /* dc=*/     D2,      // 4  DC  D2
+                       /* reset=*/  D6);     // 12 RST D6                        
+uint8_t ledLCD = D5;                         // 14 LED D5
+#endif
 
+// Get the Center of the display
 int centerX = dis.getDisplayWidth()/2;
 int centerY = dis.getDisplayHeight()/2;
 
-int eyeMovementX = 0;
-int eyeMovementY = 0;
-
+// Timers 
 long timer, timeout, httpsTimer;
 
-#define INPUT_SIZE 20
-char serialRead;
-
-String MESSAGE;
-
+// booleans for calling functions
 bool newFace = false;
-bool newText = false;
+bool newTextOrDrawing = false;
 bool online = false;
-//int function1,function2,function3,function4;
-  int function[5];
+
+// array that holds the face parameters
+int function[5];
+
+// Turn on/off the LCD led
+void backlight(bool OnOFF)
+{
+  timer = millis();
+  #if isAdafruit 
+  #else
+  digitalWrite(ledLCD,!OnOFF);
+  #endif
+}
+// FACE DRAWING FUNCTIONS
 void Eyes(int _deg, int _dist)
 {
   
@@ -119,45 +139,33 @@ void Mouth(int _size,int _yPos, int _smileSize)
   dis.drawLine(mouthL,mouthY,mouthL,smile);
   dis.drawLine(mouthR,mouthY,mouthR,smile);
 }
-
-void backlight(bool OnOFF)
-{
-  timer = millis();
-  digitalWrite(ledLCD,!OnOFF);
-}
-
+// ONLINE STATUS BAR DRAWING FUNCTION
 void status()
 {
+  dis.setFont(u8g2_font_u8glib_4_tr);
   if (wifiMulti.run() != WL_CONNECTED)
   {
     dis.setDrawColor(0);
-    dis.drawBox(0,0,dis.getWidth(),2);
+    dis.drawBox(0,0,dis.getWidth(),6);
   }
   else
   {
     dis.setDrawColor(255);
-    dis.drawBox(0,0,dis.getWidth(),2);
+    dis.drawBox(0,0,dis.getWidth(),6);
+    dis.setDrawColor(0);
+    dis.drawStr(0,5,WiFi.SSID().c_str());
+    // dis.setDrawColor(255);
+    // dis.drawBox(0,0,dis.getWidth(),6);
+    // dis.setDrawColor(0);
+    // dis.drawStr(0,5,WiFi.localIP().toString().c_str());
   }
   dis.sendBuffer();
+  dis.setFont(u8g2_font_5x7_tf);
+  backlight(true);
+  timer = millis();
 }
 
-// void setupFeedback()
-// {
-//   pinMode(buzzerPin,OUTPUT);
-//   pinMode(ledR,OUTPUT);
-//   pinMode(ledG,OUTPUT);
-//   pinMode(ledB,OUTPUT);
-// }
-
-// void giveFeedback(bool R = 0, bool G = 0, bool B = 0, int freq = 0)
-// {
-//     digitalWrite(ledR,R);
-//     digitalWrite(ledG,G); 
-//     digitalWrite(ledB,!B);
-//     //tone(buzzerPin,freq,50); 
-//     timer = millis();   
-// }
-
+// SETUP FUNCTIONS
 void setupHttpsRedirect()
 {
   // Use HTTPSRedirect class to create a new TLS connection
@@ -190,37 +198,31 @@ void setupWifi()
   timeout = millis();
   Serial.println();
   Serial.print("Connecting...");
-  Serial.println(ssid);
-  wifiMulti.addAP(ssid,password);
+  wifiMulti.addAP("kevin","12345678");
   wifiMulti.addAP("kevinpc","esp123456");
   wifiMulti.addAP("GL-MT300N-V2-e59","goodlife");
+  wifiMulti.addAP("ASK4 Wireless","");
   Serial.println();
   Serial.print("Connecting...");
   while (wifiMulti.run() != WL_CONNECTED)
   {
-    //giveFeedback(1,0,1,0);
     online = false;
     delay(250);
-    // giveFeedback(0,0,0,200);
     Serial.print(".");
     if (millis() - timeout > 10000)
       break;
   }
-  //digitalWrite(ledPin,LOW);
+
   Serial.println();
   if (WiFi.status() == WL_CONNECTED)
   {    
-    //giveFeedback(0,1,0,400);
-    //backlight(true);
     online = true;
-    Serial.println("Wifi Connected");
+    Serial.print("Connected to: ");
+    Serial.println(WiFi.SSID());
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
     Serial.print("MAC: ");
     Serial.println(WiFi.macAddress());
-    
-
-
   }
   else {
     Serial.println("Wifi NOT Connected");
@@ -266,43 +268,31 @@ void setupOSC()
 }
 void setupDisplay()
 {
+  #if isAdafruit
+  #else
+  dis.setDisplayRotation(U8G2_R2);
+  #endif
   timer = millis();
   dis.begin();
   //dis.setFont(u8g2_font_ncenB08_tr);   // choose a suitable font
   dis.setFontDirection(0);
   dis.setFont(u8g2_font_5x7_tf);
-  dis.clearBuffer();
-  Eyes(0,0);
-  Mouth(0,0,1);
+  //dis.clearBuffer();
+  Eyes(-75,8);
+  Mouth(-20,-10,-1);
+  dis.drawStr(10,45,"updating...");
   dis.sendBuffer();
 }
 
-/*
-bool getSerialMessage()
+// HELPER FUNCTIONS
+// Resets the display
+void resetDisplay()
 {
-    //  REF CODE USED
-    //  https://arduino.stackexchange.com/questions/1013/how-do-i-split-an-incoming-string/20829 
-    //  https://forum.arduino.cc/index.php?topic=450585.0 
-     
-  // Get next command from Serial (add 1 for final 0)
-  char input[INPUT_SIZE + 1];
-  char *separator = NULL;
-  byte size = Serial.readBytes(input, INPUT_SIZE);
-  // Add the final 0 to end the C string
-  input[size] = 0;
-  byte index = 0;
-  // Split the command in two values
-  separator = strtok(input, ":");
-  while (separator != NULL)
-  {
-    function[index] = atoi(separator);
-    index++;
-    separator = strtok(NULL, ":");
-  }
-
-  return true;
+    dis.setDrawColor(0);
+    dis.drawBox(0,0,dis.getWidth(),dis.getHeight());
+    dis.setDrawColor(255);
 }
-*/
+// Line breaker for text drawing
 void formatMessage(String message, int col, int line, int maxcol, int maxline) {
 
 int window_width = maxcol - col;
@@ -347,7 +337,6 @@ message.toCharArray(splitted, message.length()+1);
 dis.drawUTF8 (col, line , splitted);
 }
 }
-
 int wordcount (String message) {
 int startIndex = 0;
 int countword = 0;
@@ -358,21 +347,19 @@ countword += 1;
 countword += 1;
 return (countword);
 }
-
+// Replace '_' to ' ' from received text
 void newHTTPSText(String _input)
 {
     myReceivedText = _input;
     myReceivedText.replace('_',' ');
-    newText = true;
+    newTextOrDrawing = true;
 
 }
-
+// Convert received message to Face inputs
 void newHTTPSFace(String _input)
 {
   char *input = new char[_input.length() +1];
   strcpy(input, _input.c_str());
-  // Get next command from Serial (add 1 for final 0)
-  //char input[INPUT_SIZE + 1];
   char *separator = NULL;
 
   // Add the final 0 to end the C string
@@ -388,7 +375,7 @@ void newHTTPSFace(String _input)
   }
   newFace = true;
 }
-
+// Convert received OSC message to Face inputs
 void eye(OSCMessage &message) 
 {
   function[0] = message.getInt(0);
@@ -420,6 +407,8 @@ void sender(OSCMessage &message)
   Serial.println(newFace);
 }
 
+// LOOP FUNCTIONS
+// Get data from Google Sheets and calls apropriate functions
 void httpsLoop()
 {
   Serial.print("Connecting to ");
@@ -438,15 +427,26 @@ void httpsLoop()
     return;
   }
 
-  // Serial.println("GET Data from cell 'A1':");
-  if (client->GET(url3, host)){
+  status();
+
+  // Get Data from A1 Google Sheet
+  if (client->GET(url3, host))
+  {
     ++connect_count;
     String httpsMessage = client->getResponseBody();
-    if (oldHttpsMessage == httpsMessage) return;
-    oldHttpsMessage = httpsMessage;
     char thisChar = httpsMessage[0];
-    if (isDigit(thisChar)) newHTTPSFace(httpsMessage);
-    else newHTTPSText(httpsMessage);
+    // if first char is a number, received data is a FACE
+    if (isDigit(thisChar)) 
+    {
+      newHTTPSFace(httpsMessage);
+    }
+    // if it's not a number, received data could be a text or a drawing
+    else 
+    {
+      if (oldHttpsMessage == httpsMessage[1]) return;
+      oldHttpsMessage = httpsMessage[1];
+      newHTTPSText(httpsMessage);
+    }
   }
   else{
     ++error_count;
@@ -464,6 +464,7 @@ void httpsLoop()
     //ESP.deepSleep(0);
   }
 }
+// Get data from OSC communication and calls apropriate functions
 void OSCLoop()
 {
   OSCMessage message;
@@ -496,11 +497,21 @@ void OSCLoop()
     }
   }
 }
+// Light sleep for the not adafruit
+void light_sleep(int time){
+  WiFi.disconnect();
+  WiFi.mode(WIFI_OFF);
+  WiFi.forceSleepBegin();
+  Serial.println(WiFi.status());
+  delay(time);
+  ESP.reset();
+ }
 
 void setup()
 {
   Serial.begin(115200);
   pinMode(ledLCD,OUTPUT);
+  digitalWrite(ledLCD,true);
 
   free_heap_before = ESP.getFreeHeap();
   free_stack_before = ESP.getFreeContStack();
@@ -511,7 +522,7 @@ void setup()
   setupWifi();
   //setupOSC();
   setupHttpsRedirect();
-  status();
+  httpsLoop();
 }
 
 void loop() 
@@ -519,33 +530,32 @@ void loop()
   // Listen for HTTP requests from clients
   server.handleClient();
 
-  //OSCLoop();
-
-  if (millis() - httpsTimer > 30000)
-  {
-    httpsLoop();
-    httpsTimer = millis();
-  }
-
+  // after 10s put the device to sleep
   if(millis() - timer > 10000)
   {
+    dis.setDrawColor(0);
+    dis.drawBox(0,0,dis.getWidth(),6);
+    // dis.setDrawColor(1);
+    // dis.drawBox(0,0,dis.getWidth(),dis.getHeight());
+    dis.sendBuffer();
     backlight(false);
+
+    // isAdafruit uses a LiPo battery
+    // else uses a usb to power the device
+    #if isAdafruit
+    Serial.println("I'm going into deep sleep mode for 60 minutes");
+    ESP.deepSleep(36e8);
+    #else
+    Serial.println("I'm going into deep sleep mode for 10 minutes");
+    light_sleep(60e4);
+    #endif
   }
 
-  if(millis() - timeout > 360000 && wifiMulti.run() != WL_CONNECTED)
-  {
-    setupWifi();
-    status();
-  }
-
-
+  // if detects a new face draw the new face
   if(newFace)
   {
     Serial.println("newFace");
-    dis.setDrawColor(0);
-    dis.drawBox(0,0,dis.getWidth(),dis.getHeight());
-    dis.setDrawColor(255);
-    backlight(true);
+    resetDisplay();
 
     Eyes(function[0],function[1]);
     Mouth(function[2],function[3],-function[4]);
@@ -557,20 +567,19 @@ void loop()
 
     newFace = false;
   }
-  
-  if(newText)
-  {
-    Serial.println("newText");
-     dis.setDrawColor(0);
-     dis.drawBox(0,0,dis.getWidth(),dis.getHeight());
-     dis.setDrawColor(255);
-    backlight(true);
 
+  // if detects a new text or drawing output the data
+  else if(newTextOrDrawing)
+  {
+    Serial.println("newTextOrDrawing");
+    resetDisplay();
+
+    // if first char is ',' it is a drawing
     if (myReceivedText[0] == ',')
     {
       char *str = (char*)myReceivedText.c_str();
       char* p = strtok(str, ",");
-      const size_t bufferSize = 150;
+      const size_t bufferSize = 200;
       size_t index =0;
       int positions[bufferSize];
       while (p != nullptr && index < bufferSize) {
@@ -583,6 +592,7 @@ void loop()
         dis.drawLine(positions[i],positions[i+1],positions[i+2],positions[i+3]);
       }
     }
+    // if first char is not ',' it is a text
     else
     {
       dis.firstPage();
@@ -593,10 +603,8 @@ void loop()
       } while (dis.nextPage());
     }
     status();
-    
-    //dis.sendBuffer();
-    
-    newText = false;
+
+    newTextOrDrawing = false;
   }
 
 }
